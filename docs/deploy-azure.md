@@ -39,7 +39,7 @@ Merge this branch into `main`. CI tests the code and pushes the image to GitHub 
 The deploy job is skipped until step 5.
 
 Then make the image public, so Azure can pull it without a password: GitHub, your profile,
-**Packages**, `email-filtering-using-distilbert`, **Package settings**, **Change visibility**, **Public**.
+**Packages**, `spam-filter-api`, **Package settings**, **Change visibility**, **Public**.
 
 ## 2. Get the trained model
 
@@ -48,7 +48,7 @@ The model is not in the repository (about 260 MB). Train it on Colab with
 and download the zip:
 
 ```python
-!cd /content/Email-Filtering-Using-DistilBERT && zip -q -r /content/spam_detection_model.zip spam_detection_model
+!cd /content/spam-filter-api && zip -q -r /content/spam_detection_model.zip spam_detection_model
 from google.colab import files
 files.download("/content/spam_detection_model.zip")
 ```
