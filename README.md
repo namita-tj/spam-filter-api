@@ -1,274 +1,196 @@
-# Email Filtering Using DistilBERT
+<div align="center">
 
-![CI](https://github.com/namita-tj/Email-Filtering-Using-DistilBERT/actions/workflows/ci.yml/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13-blue)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
+# 📧 spam-filter-api
 
-This started as a small project: fine-tune DistilBERT to catch spam, put it behind an API, and
-ask an LLM whenever the model isn't sure. When I came back to it later, I realised I had never
-checked whether any of that was worth it. Is a transformer actually better than a simple model
-here? Does the LLM fallback help? And when the model explains a decision, can I believe it?
+**A spam filter API with an LLM second opinion, measured honestly: the simple model won, and the explanations showed why the big one fails** ♡
 
-So I rebuilt it properly and measured everything. Some of the answers surprised me.
+<a href="https://github.com/namita-tj/spam-filter-api/actions/workflows/ci.yml"><img src="https://github.com/namita-tj/spam-filter-api/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<img src="https://img.shields.io/badge/python-3.12_|_3.13-331E18?style=flat-square&logo=python&logoColor=FBB019" alt="Python 3.12 and 3.13">
+<img src="https://img.shields.io/badge/live_on-Azure-D9707F?style=flat-square&logo=microsoftazure&logoColor=white" alt="Live on Azure">
+<img src="https://img.shields.io/badge/license-MIT-6E8F4E?style=flat-square" alt="MIT license">
 
-## What I found
+[What it is](#-what-it-is) · [Why](#-why) · [Results](#-results) · [Quick start](#-quick-start) · [How it works](#-how-it-works) · [Can and can't](#-what-it-can-and-cant-do) · [Files](#-where-to-find-what)
 
-I expected the fine-tuned DistilBERT to win clearly. It didn't. On the Enron test set every
-model I trained landed at an F1 of about 0.99, and plain Naive Bayes flagged the fewest
-legitimate emails (0.8%, against 0.9% for DistilBERT). Naive Bayes trains in 16 seconds on a
-CPU. DistilBERT took 27 minutes on a GPU and is roughly 20 to 30 times slower per email.
+</div>
 
-The real problem showed up when I tested on modern emails that none of the models had seen.
-They all still caught over 99% of the phishing, but they also marked a lot of normal email as
-spam: about a quarter of it for the classical models, and 37% for DistilBERT.
+### 🤔 What it is
+A spam filter you can call over HTTP. A fine-tuned DistilBERT decides first. When it's unsure, an LLM gives a second
+opinion, and if no LLM is available, keyword rules decide. It can also show which words drove each decision. It runs
+live on Azure, deployed automatically from GitHub. (It used to be called *Email-Filtering-Using-DistilBERT*,
+until the results showed DistilBERT wasn't the model to keep.)
 
-The explainability tools I had built told me why. The words pushing hardest towards "not spam"
-were *enron*, *vince*, *kaminski*, *daren* and *hpl*, names and jargon from one company in the
-early 2000s. The model had basically learned that anything that looks like Enron is safe, and
-anything else is suspicious.
+Around it is the part I care about most: a benchmark against simpler models and a local LLM, a test on modern
+emails it never saw, and tests of whether its explanations can be trusted.
 
-I then tried a free open-weight LLM (Qwen2.5-3B, running locally on the GPU, no training at
-all) to see whether a model without that Enron bias would do better. It caught the spam too,
-but it flagged 47% of the legitimate Enron emails and 74% of the modern ones. So that wasn't
-the answer either.
+**For:** anyone building a text classifier who wants to know whether the big model is worth it, and anyone looking for
+a small but complete example of an ML API in production.
 
-My LLM fallback never fired once. It only steps in when the model is unsure, and on modern
-email the model wasn't unsure, it was confidently wrong. That was the most useful lesson for
-me: a confidence threshold can't protect you from data that has changed.
+### ✨ Why
+This started as a small project: fine-tune DistilBERT, put it behind an API, ask an LLM when unsure. When I came back
+to it, I realised I had never checked whether any of that was worth it.
 
-If I had to ship this today, I'd put logistic regression or Naive Bayes behind the same API.
-They're just as accurate on this data and far cheaper to run. For modern email, the fix is
-newer training data, and a bigger model won't make up for that.
+**Why this matters:** a spam filter that flags real email is worse than one that misses some spam, because nobody
+checks the spam folder for the invoice, the job offer or the message from the bank. A model that scores 99% on its
+test set can still fail on email from today. And if a model explains its decision, the explanation has to be true,
+or it only makes a wrong answer look convincing. So I measured three things: is the transformer better than a
+simple model, does the LLM fallback help, and can I believe the explanations?
 
-<p align="center">
-  <img src="docs/explanation_example.svg" alt="A spam email from the Enron test set with each word highlighted by how much it pushed the model towards spam (red) or ham (blue)" width="760">
-</p>
-<p align="center"><sub>A real explanation from the trained model. Red words pushed it towards spam, blue towards ham.
-You can see a lot of weight landing on everyday words like <i>you</i> and <i>the</i>, which matches what the faithfulness tests found.</sub></p>
+### 📈 Results
+The same 2,000 Enron-Spam test emails, and 2,000 modern emails (769 phishing, 1,231 safe) that no model was trained on.
 
-## The numbers
+| Model | Enron F1 | Enron: real emails flagged | Modern: real emails flagged | ms per email | Training |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Naive Bayes | 0.990 | **0.8%** | 23.2% | 0.6 | 16 s |
+| Logistic regression (TF-IDF) | 0.986 | 1.9% | **22.6%** | 0.4 | 18 s |
+| DistilBERT, fine-tuned | **0.992** | 0.9% | 37.4% | 10.4 | 27 min |
+| Qwen2.5-3B, zero-shot (200 + 200 emails) | 0.817 | 46.9% | 74.4% | ~500 | none |
 
-Every model was scored on the same emails: the 2,000-email Enron-Spam test set, and 2,000
-emails from a modern phishing dataset (769 phishing, 1,231 safe) that no model was trained on.
-All of it ran on a free Colab T4 GPU.
+**In short:**
+- On Enron, every trained model is at about 0.99 F1. DistilBERT isn't better, just 20 to 30 times slower.
+- On modern email, they all still catch over 99% of the phishing, but they flag a quarter or more of the real email.
+  DistilBERT is the worst at 37%.
+- **Why:** the explanations showed the words pushing hardest towards "not spam" were *enron*, *vince*, *kaminski*: the
+  model learned "looks like Enron = safe".
+- The LLM fallback never fired. On modern email the model wasn't unsure, it was confidently wrong.
 
-| Model | Enron F1 | Enron: real emails flagged | Modern: real emails flagged | Modern: phishing caught | ms per email | Training |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Naive Bayes | 0.990 | 0.8% | 23.2% | 99.2% | 0.6 | 16 s |
-| Linear SVM (TF-IDF) | 0.989 | 1.6% | 25.2% | 99.6% | 0.4 | 17 s |
-| Logistic regression (TF-IDF) | 0.986 | 1.9% | 22.6% | 99.5% | 0.4 | 18 s |
-| DistilBERT, fine-tuned | 0.992 | 0.9% | 37.4% | 99.6% | 10.4 | 27 min |
+Every model, all 17 KPIs I set *before* training (9 passed, 3 missed) and the explanation tests are in
+[`reports/`](reports): [KPIs](reports/kpis.md), [benchmark](reports/benchmark.md), [explainability](reports/explainability.md).
 
-The local LLM takes about half a second per email, so I ran it on a random 200 emails from
-each set and scored the other models on exactly the same ones:
+<p align="center"><img src="docs/explanation_example.svg" width="760" alt="A spam email with each word highlighted by how much it pushed the model towards spam (red) or ham (blue)"></p>
+<p align="center"><sub>A real explanation from the model. Red words pushed it towards spam, blue towards ham.</sub></p>
 
-| Model (same 400 emails) | Enron F1 | Enron: real emails flagged | Modern: real emails flagged | Modern: phishing caught |
-| --- | ---: | ---: | ---: | ---: |
-| Logistic regression (TF-IDF) | 0.981 | 3.1% | 18.2% | 98.7% |
-| DistilBERT, fine-tuned | 0.986 | 2.1% | 38.0% | 98.7% |
-| Qwen2.5-3B-Instruct, zero-shot | 0.817 | 46.9% | 74.4% | 97.5% |
-
-To be fair to the LLM, I used the same prompt as the API fallback and didn't tune it, and 3B is
-a small model. A bigger model with a few examples in the prompt would probably do better. Still,
-the result lines up with research showing that small fine-tuned models usually beat zero-shot
-LLMs at classification.
-
-Before training anything I wrote down 17 KPIs with targets, so I couldn't move the goalposts
-afterwards. 9 passed, 3 missed, 3 need a human to look at them, and 2 couldn't be measured
-because no email ever reached the LLM.
-
-<details>
-<summary>All 17 KPIs</summary>
-
-| Group | KPI | Target | Result |
-| --- | --- | ---: | ---: |
-| Quality | Real emails marked as spam | ≤ 1% | 0.9%, pass |
-| Quality | Spam caught (recall) | ≥ 95% | 99.2%, pass |
-| Quality | F1, full system | ≥ 95% | 99.2%, pass |
-| Quality | F1, model alone (validation) | ≥ 95% | 99.5%, pass |
-| Hybrid design | Accuracy gain from the LLM on uncertain emails | ≥ 0 pp | not measured (no uncertain emails) |
-| Hybrid design | Emails sent to the LLM | ≤ 15% | 0%, pass |
-| Hybrid design | Emails falling back to rules | ≤ 1% | 0%, pass |
-| Operations | Latency p95, model path (T4 GPU) | ≤ 300 ms | 165 ms, pass |
-| Operations | Latency p95, LLM path | ≤ 3 s | not measured (no LLM calls) |
-| Operations | LLM cost per 1,000 emails | ≤ $0.10 | $0, pass |
-| Explainability | IG completeness error (mean) | ≤ 0.05 | 0.159, miss |
-| Explainability | Top-5 comprehensiveness minus random | ≥ 0.10 | 0.009, miss |
-| Explainability | Explanations beating random (top-5) | ≥ 80% | 57%, miss |
-| Explainability | Top-5 sufficiency | ≤ 0.20 | 0.092, pass |
-| Explainability | Shortcut words | reviewed | 12 flagged, all Enron names and jargon |
-| Robustness | Modern phishing caught | tracked | 99.6% |
-| Robustness | Safe modern emails marked as spam | tracked | 36.6% |
-
-The full reports are in [`reports/`](reports): [KPIs](reports/kpis.md),
-[explainability](reports/explainability.md), [benchmark](reports/benchmark.md) and the
-[training metrics](reports/model/metrics.json).
-
-</details>
-
-## How it works
-
-An email goes to DistilBERT first. If the spam probability is clearly high or clearly low, that's
-the answer. If it falls in between, the email goes to an LLM (Azure OpenAI or OpenAI) for a second
-opinion, and if no LLM is available, a few keyword rules decide.
-
-```mermaid
-flowchart LR
-    A[POST /predict] --> B[DistilBERT<br/>spam probability p]
-    B -->|p >= high| S[spam · source=model]
-    B -->|p <= low| H[ham · source=model]
-    B -->|low < p < high| C{LLM configured<br/>and reachable?}
-    C -->|yes| L[LLM label + reason<br/>source=llm]
-    C -->|no / error| R[Keyword rules<br/>source=rules]
-```
-
-The "unsure" band is picked on the validation set, so that whatever the model decides alone is
-at least 99% precise for both spam and ham. On Enron the model already hit that everywhere, so
-the band shrank to a single cut-off at 0.57, which is why nothing went to the LLM. Training and
-the API share the same text cleaning code, so the model sees the same input in both places.
-
-## The explanations, and where they fall short
-
-You can ask the API to explain a decision (`/predict?explain=true`). It uses Integrated
-Gradients, which measures how much each word moved the spam probability. I didn't use attention
-weights, because they show where the model looks, not what changes its mind.
-
-I didn't want to just trust the explanations, so I tested them, and they're only partly
-reliable. Keeping just the top 5 words mostly preserves the prediction, which is good. But
-removing those 5 words barely changes it, hardly more than removing 5 random words. The model is
-so confident (probabilities right at 0 or 1) that taking out a few words doesn't move it. The
-attributions also don't add up as precisely as they should, probably because 32 integration
-steps is too few. The shortcut audit, on the other hand, turned out to be the most useful part
-of the whole project, since it's what exposed the Enron bias.
-
-## What's left
-
-- Retrain on a mix of Enron and recent email and run the benchmark again. This is the obvious
-  next step for the false alarms on modern email.
-- Send emails that look unlike the training data to the LLM, instead of only the ones the model
-  is unsure about.
-- Try a bigger open model (7–8B) with a few-shot prompt.
-- Run Integrated Gradients with more steps, and measure faithfulness on logits instead of
-  probabilities.
-
-## Try it yourself
-
-The easiest way is Google Colab, no API key needed. Upload
-[`notebooks/train_and_evaluate.ipynb`](notebooks/train_and_evaluate.ipynb) to train the model and
-measure every KPI (about 40 minutes on a free T4), then
-[`notebooks/benchmark.ipynb`](notebooks/benchmark.ipynb) for the model comparison (about 15 minutes).
-
-To run it locally (Python 3.12 or 3.13, a GPU helps):
+### 🚀 Quick start
+**Try the live API** (the link is in the repo's About section). The first request after a quiet period takes a minute
+or two while the model loads.
 
 ```bash
-git clone https://github.com/namita-tj/Email-Filtering-Using-DistilBERT
-cd Email-Filtering-Using-DistilBERT
-pip install -r requirements.txt -r training/requirements.txt
-
-python -m training.train              # fine-tune DistilBERT on Enron-Spam
-python -m evaluation.run --phishing   # all KPIs (add --no-llm to skip API calls)
-python -m training.benchmark --local-llm Qwen/Qwen2.5-3B-Instruct   # the comparison, needs PyTorch
-```
-
-`TRAIN_LIMIT=2000` gives you a quick trial run, and `python -m training.baseline` trains the
-TF-IDF baseline in under a minute on a CPU.
-
-To serve the API, copy `.env.example` to `.env`, then run `uvicorn app.main:app --reload` or
-`docker compose up --build`, and open http://localhost:8000/docs.
-
-```bash
-curl -X POST "http://localhost:8000/predict?explain=true&top_k=3" \
+curl -X POST "https://<live-url>/predict?explain=true&top_k=3" \
   -H "Content-Type: application/json" \
   -d '{"subject": "Account locked", "text": "Verify your password within 24 hours."}'
 ```
 
-The response tells you the label, the spam probability, which stage decided (`model`, `llm` or
-`rules`) and, if you asked for it, the words that mattered most. `GET /health` shows whether the
-model is loaded and whether the LLM fallback is on.
+The answer gives the label, the spam probability, which stage decided (`model`, `llm` or `rules`) and, if you asked,
+the words that mattered most. `GET /health` shows whether the model is loaded and the LLM fallback is on.
 
-## Running it on Azure
+**Run it yourself** (Python 3.12 or 3.13):
 
-The API also runs in the cloud, on Azure Container Apps (the link is in the repo's About section).
-I wanted the setup to be something a team could actually use, not just a container I clicked
-together once, so all of it is code in [`infra/main.bicep`](infra/main.bicep):
+```bash
+git clone https://github.com/namita-tj/spam-filter-api && cd spam-filter-api
+cp .env.example .env
+docker compose up --build             # or: pip install -r requirements.txt, then uvicorn app.main:app --reload
+```
+Then open http://localhost:8000/docs.
 
-- **Container Apps** runs the Docker image from GitHub Container Registry. It scales to zero when
-  nobody is using it, so it costs next to nothing, with at most one replica. The catch is a cold
-  start: the first request after a quiet period takes a minute or two while TensorFlow and the
-  model load.
-- **Blob Storage** holds the trained model. The app downloads it at startup with its own managed
-  identity, and the storage account doesn't accept keys at all.
-- **Secrets** (the Application Insights connection string, and an OpenAI key if the LLM fallback is
-  on) live in the container app's encrypted secret store and reach the app as environment variables.
-  I first used Key Vault references, but Azure created a Container Apps *express* environment,
-  which doesn't support them, so the template stores them in the app instead.
-- **Application Insights** gets every request with its latency, plus each prediction's label,
-  source and probability, so I can see the p95 latency and how often the LLM or the rules decide
-  instead of the model.
-- **GitHub Actions** deploys every merge to `main` and then runs a smoke test against the live URL.
-  It signs in to Azure through OpenID Connect, so there's no Azure password stored in GitHub, and
-  the identity it uses can only touch this one resource group.
-- **A budget** emails me well before costs could matter, and log ingestion is capped.
-
-The step-by-step setup, including the monitoring queries, is in
-[`docs/deploy-azure.md`](docs/deploy-azure.md).
+**Reproduce the results** on Google Colab (free T4 GPU, no API key needed):
+[`notebooks/train_and_evaluate.ipynb`](notebooks/train_and_evaluate.ipynb) trains the model and measures every KPI
+(about 40 minutes), and [`notebooks/benchmark.ipynb`](notebooks/benchmark.ipynb) runs the comparison (about 15 minutes).
 
 <details>
-<summary>Configuration</summary>
+<summary><b>🖥️ Train and evaluate locally</b></summary>
 
-Everything is set through environment variables, and [`.env.example`](.env.example) lists them all.
+```bash
+pip install -r requirements.txt -r training/requirements.txt
+python -m training.train              # fine-tune DistilBERT on Enron-Spam
+python -m evaluation.run --phishing   # all KPIs (add --no-llm to skip API calls)
+python -m training.benchmark --local-llm Qwen/Qwen2.5-3B-Instruct   # the comparison, needs PyTorch
+```
+`TRAIN_LIMIT=2000` gives a quick trial run, and `python -m training.baseline` trains the TF-IDF baseline in under a
+minute on a CPU.
+</details>
+
+### 🔧 How it works
+
+```mermaid
+flowchart LR
+    A[POST /predict] --> B[DistilBERT<br/>spam probability p]
+    B -->|clearly spam| S[spam · source=model]
+    B -->|clearly ham| H[ham · source=model]
+    B -->|unsure| C{LLM available?}
+    C -->|yes| L[LLM label + reason<br/>source=llm]
+    C -->|no / error| R[Keyword rules<br/>source=rules]
+```
+
+The "unsure" band is chosen on the validation set, so that whatever the model decides alone is at least 99% precise.
+Explanations use Integrated Gradients, which measures how much each word moved the probability. I didn't use
+attention weights, because they show where the model looks, not what changes its mind.
+
+**What's different from a typical spam-filter project:**
+
+| Typical project | This one |
+| --- | --- |
+| Trains one model and reports its accuracy | Compares it with Naive Bayes, SVM, logistic regression and a local LLM, on the same emails |
+| Tests on its own test set | Also tests on modern emails no model has seen |
+| Shows explanations and trusts them | Tests whether they are faithful, and audits them for shortcut words |
+| Picks the goals after seeing the results | 17 KPIs with targets written down before training |
+| Runs on a laptop | Runs on Azure, set up as code, deployed from GitHub without a stored password |
+
+<details>
+<summary><b>☁️ How it runs on Azure</b></summary>
+
+Everything is code in [`infra/main.bicep`](infra/main.bicep); the step-by-step setup is in
+[`docs/deploy-azure.md`](docs/deploy-azure.md).
+
+- **Container Apps** runs the Docker image from GitHub Container Registry and scales to zero, so it costs next to nothing.
+- **Blob Storage** holds the model. The app downloads it with its own managed identity, and the storage account accepts no keys.
+- **Secrets** live in the container app's encrypted store. Container Apps *express* environments don't support Key Vault references, so the template stores them in the app.
+- **Application Insights** records every request with its latency, label, source and probability.
+- **GitHub Actions** deploys every merge to `main` and runs a smoke test against the live URL. It signs in through OpenID Connect, so no Azure password is stored in GitHub.
+- **A budget alert** and a log cap keep costs in check.
+</details>
+
+<details>
+<summary><b>⚙️ Configuration</b></summary>
+
+Everything is set through environment variables; [`.env.example`](.env.example) lists them all.
 
 | Variable | What it does |
 | --- | --- |
 | `MODEL_DIR` | Folder with the trained model (default `spam_detection_model`) |
-| `MODEL_BLOB_URL` | Azure Blob folder to download the model from if `MODEL_DIR` is empty (uses `az login` or a managed identity) |
+| `MODEL_BLOB_URL` | Azure Blob folder to download the model from if `MODEL_DIR` is empty |
 | `S3_BUCKET`, `S3_PREFIX` | Same from S3, if `MODEL_BLOB_URL` is not set |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Sends traces, latency and prediction logs to Application Insights; off when empty |
-| `LLM_PROVIDER` | `azure`, `openai` or `none`; picked from the credentials if left empty |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Sends traces, latency and prediction logs to Application Insights |
+| `LLM_PROVIDER` | `azure`, `openai` or `none`; picked from the credentials if empty |
 | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI fallback |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | OpenAI fallback (default `gpt-4o-mini`) |
 | `LOW_THRESHOLD`, `HIGH_THRESHOLD` | Override the unsure band from training |
 | `LLM_TIMEOUT_SECONDS`, `LOG_LEVEL` | LLM timeout and log level |
-
 </details>
 
-<details>
-<summary>Development and project layout</summary>
+### ✅ What it can and can't do
+| Works well | Not yet |
+| --- | --- |
+| Catching spam and phishing (over 99%, old and new) | Leaving modern real email alone: 37% flagged, because it trained on Enron only |
+| Explaining which words drove a decision | Fully faithful explanations: removing the top 5 words barely beats removing 5 random ones |
+| An LLM second opinion when the model is unsure | Catching data that has changed: the model is confidently wrong there, so the LLM never gets asked |
+| Running live on Azure for almost no cost | Fast first requests: a cold start takes a minute or two |
 
-The tests use stand-ins for the model and the LLM, so they run in a few seconds without a GPU
-or API keys:
+### 💡 What I learned
+- **Bigger isn't automatically better.** Naive Bayes trains in 16 seconds and flags fewer real emails than DistilBERT. If I shipped this today, I'd put logistic regression or Naive Bayes behind the same API.
+- **A confidence threshold can't protect you from changed data.** The model wasn't unsure about modern email, it was confidently wrong.
+- **Test the explanations too.** The shortcut audit was the most useful part of the project: it's what exposed the Enron bias.
+- **Write the goals down first.** Setting 17 KPIs before training meant I couldn't move the goalposts afterwards.
 
-```bash
-pip install -r requirements-dev.txt
-ruff check .
-pytest --cov
-```
+### 📚 Where to find what
+| I want to… | Look here |
+| --- | --- |
+| see every result, KPI and explanation test | [`reports/`](reports) |
+| set it up on Azure | [`docs/deploy-azure.md`](docs/deploy-azure.md), [`infra/main.bicep`](infra/main.bicep) |
+| reproduce the results | [`notebooks/`](notebooks) |
+| read the API: decision chain, explanations, LLM fallback | `app/` |
+| read the training and the benchmark | `training/` |
+| read the KPIs, faithfulness tests and shortcut audit | `evaluation/` |
+| run the tests | `pip install -r requirements-dev.txt`, then `ruff check .` and `pytest --cov` |
 
-GitHub Actions runs lint and tests on every push (coverage has to stay above 80%), publishes
-the Docker image to GitHub Container Registry from `main`, and deploys it to Azure once the
-repository variables from [`docs/deploy-azure.md`](docs/deploy-azure.md) are set.
+Every push runs lint and the tests (coverage has to stay above 80%) without a GPU or API keys. Every merge to `main`
+builds the Docker image and deploys it to Azure.
 
-```
-app/          the API: decision chain, DistilBERT + Integrated Gradients, LLM fallback,
-              local LLM, keyword rules, model download (Azure Blob or S3), telemetry
-infra/        the Azure setup as Bicep
-docs/         deploy-azure.md, the cloud setup step by step
-training/     fine-tuning, data loading, the unsure band, TF-IDF baseline, benchmark
-evaluation/   KPIs, end-to-end system test, faithfulness tests, shortcut audit, reports
-notebooks/    the Colab notebooks that produced the results
-reports/      the measured results
-tests/        unit and API tests
-```
+**Data:** trained on [Enron-Spam](https://huggingface.co/datasets/SetFit/enron_spam) (Metsis et al., 2006), about
+31,700 training and 2,000 test emails, with 10% held out for validation. Modern test emails come from the
+[Phishing Email Detection](https://huggingface.co/datasets/zefang-liu/phishing-email-dataset) dataset (LGPL-3.0) and
+are only used for testing.
 
-</details>
+### 🌱 What's next
+Retraining on a mix of Enron and recent email, sending emails that look unlike the training data to the LLM, trying a
+7–8B open model with a few examples in the prompt, and running Integrated Gradients with more steps.
 
-## Data
-
-The models are trained on [Enron-Spam](https://huggingface.co/datasets/SetFit/enron_spam)
-(Metsis et al., 2006): about 31,700 training and 2,000 test emails with subject and body. I hold
-out 10% of the training set for validation. The modern test emails come from the
-[Phishing Email Detection](https://huggingface.co/datasets/zefang-liu/phishing-email-dataset)
-dataset (LGPL-3.0), which is only ever used for testing. Empty and placeholder emails are dropped,
-and very long ones are cut at 20,000 characters, the same limit the API uses.
-
-Built by [Namita Thangavel Jeyaradha](https://github.com/namita-tj). MIT licensed.
+<div align="center"><sub>build cool things that actually work ♡</sub></div>

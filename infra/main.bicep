@@ -20,8 +20,8 @@ param location string = resourceGroup().location
 @maxLength(12)
 param appName string = 'email-filter'
 
-@description('Container image, e.g. ghcr.io/namita-tj/email-filtering-using-distilbert:latest')
-param image string = 'ghcr.io/namita-tj/email-filtering-using-distilbert:latest'
+@description('Container image, e.g. ghcr.io/namita-tj/spam-filter-api:latest')
+param image string = 'ghcr.io/namita-tj/spam-filter-api:latest'
 
 @description('Create the container app. False on the first run, before the model is uploaded.')
 param deployApp bool = true
@@ -30,7 +30,7 @@ param deployApp bool = true
 param adminPrincipalId string
 
 @description('GitHub repository allowed to deploy, as owner/name (case as on GitHub).')
-param githubRepository string = 'namita-tj/Email-Filtering-Using-DistilBERT'
+param githubRepository string = 'namita-tj/spam-filter-api'
 
 @description('Branch that deploys.')
 param githubBranch string = 'main'
