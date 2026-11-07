@@ -6,7 +6,7 @@
 
 <a href="https://github.com/namita-tj/spam-filter-api/actions/workflows/ci.yml"><img src="https://github.com/namita-tj/spam-filter-api/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <img src="https://img.shields.io/badge/python-3.12_|_3.13-331E18?style=flat-square&logo=python&logoColor=FBB019" alt="Python 3.12 and 3.13">
-<img src="https://img.shields.io/badge/live_on-Azure-D9707F?style=flat-square&logo=microsoftazure&logoColor=white" alt="Live on Azure">
+<a href="https://ca-email-filter.orangesky-71724113.germanywestcentral.azurecontainerapps.io/docs"><img src="https://img.shields.io/badge/live_on-Azure-D9707F?style=flat-square&logo=microsoftazure&logoColor=white" alt="Live on Azure"></a>
 <img src="https://img.shields.io/badge/license-MIT-6E8F4E?style=flat-square" alt="MIT license">
 
 [What it is](#-what-it-is) · [Why](#-why) · [Results](#-results) · [Quick start](#-quick-start) · [How it works](#-how-it-works) · [Can and can't](#-what-it-can-and-cant-do) · [Files](#-where-to-find-what)
@@ -16,8 +16,7 @@
 ### 🤔 What it is
 A spam filter you can call over HTTP. A fine-tuned DistilBERT decides first. When it's unsure, an LLM gives a second
 opinion, and if no LLM is available, keyword rules decide. It can also show which words drove each decision. It runs
-live on Azure, deployed automatically from GitHub. (It used to be called *Email-Filtering-Using-DistilBERT*,
-until the results showed DistilBERT wasn't the model to keep.)
+live on Azure, deployed automatically from GitHub.
 
 Around it is the part I care about most: a benchmark against simpler models and a local LLM, a test on modern
 emails it never saw, and tests of whether its explanations can be trusted.
@@ -60,11 +59,10 @@ Every model, all 17 KPIs I set *before* training (9 passed, 3 missed) and the ex
 <p align="center"><sub>A real explanation from the model. Red words pushed it towards spam, blue towards ham.</sub></p>
 
 ### 🚀 Quick start
-**Try the live API** (the link is in the repo's About section). The first request after a quiet period takes a minute
-or two while the model loads.
+**Try the live API** on its [interactive docs page](https://ca-email-filter.orangesky-71724113.germanywestcentral.azurecontainerapps.io/docs), where you can send an email from the browser. The first request after a quiet period takes a minute or two while the model loads.
 
 ```bash
-curl -X POST "https://<live-url>/predict?explain=true&top_k=3" \
+curl -X POST "https://ca-email-filter.orangesky-71724113.germanywestcentral.azurecontainerapps.io/predict?explain=true&top_k=3" \
   -H "Content-Type: application/json" \
   -d '{"subject": "Account locked", "text": "Verify your password within 24 hours."}'
 ```
